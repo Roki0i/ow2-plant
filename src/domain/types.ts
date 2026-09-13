@@ -19,7 +19,7 @@ export interface HeroElement {
   team: Team;
   position: NormalizedPoint;
 }
-// Drawing data contracts only; editing/rendering is reserved for Phase 2.
+// Drawing coordinates are image-relative; width is in CSS pixels.
 export interface LineElement {
   id: string;
   type: 'line' | 'arrow';
@@ -63,4 +63,4 @@ export interface Strategy {
   updatedAt: string;
 }
 export interface Viewport { scale: number; offset: Point }
-export type EditorTool = 'select' | 'place' | 'pan';
+export type EditorTool = 'select' | 'place' | 'pan' | 'line' | 'arrow' | 'stroke';

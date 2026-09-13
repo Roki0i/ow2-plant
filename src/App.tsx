@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import Board from './components/Board';
 import { createStrategy, heroes, initialMap } from './data/catalog';
-import { strategyReducer } from './domain/strategy';
+import { createHistory, historyReducer } from './domain/history';
 import { loadImage, validateImageFile } from './domain/image';
 import type { EditorTool, HeroElement, Point, Role, Team } from './domain/types';
 
@@ -9,7 +9,9 @@ const roleLabels: Record<Role, string> = { tank: 'タンク', damage: 'ダメー
 const demoImage = initialMap.areas[0].image;
 
 export default function App() {
-  const [strategy, dispatch] = useReducer(strategyReducer, undefined, createStrategy);
+  const [history, dispatch] = useReducer(historyReducer, undefined, () => createHistory(createStrategy()));
+  const strategy = history.present;
+  const [drawingStyle, setDrawingStyle] = useState({ color: '#79ddd0', width: 3 });
   const [heroId, setHeroId] = useState(heroes[0].id);
   const [team, setTeam] = useState<Team>('ally');
   const [tool, setTool] = useState<EditorTool>('place');
@@ -20,7 +22,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const requestId = useRef(0);
   const elements = strategy.elements.filter((e): e is HeroElement => e.type === 'hero');
-  const selected = elements.find(e => e.id === selectedId);
+  const selected = strategy.elements.find(e => e.id === selectedId);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,12 +40,32 @@ export default function App() {
     setTool('select');
   }
 
+  useEffect(() => {
+    function keydown(event: KeyboardEvent) {
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.closest('input, textarea, select') || target.isContentEditable)) return;
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (selectedId) { event.preventDefault(); dispatch({ type: 'delete', id: selectedId, at: new Date().toISOString() }); }
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault(); dispatch({ type: event.shiftKey ? 'redo' : 'undo', at: new Date().toISOString() });
+      }
+    }
+    window.addEventListener('keydown', keydown);
+    return () => window.removeEventListener('keydown', keydown);
+  }, [selectedId]);
+
+  function styleChange(color: string, width: number) {
+    setDrawingStyle({ color, width });
+    if (selected && selected.type !== 'hero') dispatch({ type: 'style', id: selected.id, color, width, at: new Date().toISOString() });
+  }
+  const currentStyle = selected && selected.type !== 'hero' ? selected : drawingStyle;
+
   async function changeImage(file?: File) {
     if (file) {
       const message = validateImageFile(file);
       if (message) { setError(message); return; }
     }
-    if (elements.length && !window.confirm('背景を変更すると現在のヒーロー配置をクリアします。変更しますか？')) return;
+    if (strategy.elements.length && !window.confirm('背景を変更すると現在の配置・描画と編集履歴をクリアします。変更しますか？')) return;
     const id = ++requestId.current;
     const url = file ? URL.createObjectURL(file) : demoImage.kind === 'original-demo' ? demoImage.url : '';
     setBusy(true);
@@ -66,7 +88,7 @@ export default function App() {
   return <div className="app">
     <header className="app-header">
       <div className="brand"><span className="brand-mark" aria-hidden="true">P</span><div><strong>OW2 PLANT</strong><span className="eyebrow">TACTICAL WORKSPACE</span></div></div>
-      <span className="phase-tag">PHASE 01 <span>配置デモ</span></span>
+      <span className="phase-tag">PHASE 02 <span>戦術編集</span></span>
     </header>
     <main>
       <div className="title-row">
@@ -99,13 +121,27 @@ export default function App() {
             <div className="tool-group">
               <button aria-pressed={tool === 'select'} onClick={() => setTool('select')}>↖ 選択・移動</button>
               <button aria-pressed={tool === 'place'} onClick={() => setTool('place')}>＋ 配置</button>
+              {(['line', 'arrow', 'stroke'] as const).map((mode, index) => <button key={mode} aria-pressed={tool === mode}
+                onClick={() => { setTool(mode); setSelectedId(null); }}>{['直線', '矢印', 'フリーハンド'][index]}</button>)}
               <button aria-pressed={tool === 'pan'} onClick={() => setTool('pan')}>✥ パン</button>
             </div>
             <span className="element-count" data-testid="element-count">{elements.length} 個配置</span>
           </div>
+          <div className="edit-properties">
+            <label>色<select aria-label="描画色" value={currentStyle.color} onChange={e => styleChange(e.target.value, currentStyle.width)}>
+              <option value="#79ddd0">ミント</option><option value="#ff9690">赤</option><option value="#f5d778">黄</option><option value="#ffffff">白</option><option value="#91baff">青</option>
+            </select></label>
+            <label>線幅<select aria-label="線幅" value={currentStyle.width} onChange={e => styleChange(currentStyle.color, Number(e.target.value))}>
+              {[1, 3, 6, 12].map(width => <option key={width} value={width}>{width} px</option>)}
+            </select></label>
+            <button disabled={!selected} onClick={() => selected && dispatch({ type: 'delete', id: selected.id, at: new Date().toISOString() })}>削除</button>
+            <button disabled={!history.past.length} onClick={() => dispatch({ type: 'undo', at: new Date().toISOString() })}>Undo</button>
+            <button disabled={!history.future.length} onClick={() => dispatch({ type: 'redo', at: new Date().toISOString() })}>Redo</button>
+          </div>
           <div className="map-notice">{localName ? `端末内の画像：${localName}` : 'デモ用の自作模式図です。King’s Rowの実際の地形ではありません。'}</div>
           {error && <p role="alert" className="error">{error}</p>}
-          {image ? <Board key={strategy.mapRevision} image={image} elements={elements} tool={tool} onPlace={place}
+          {image ? <Board key={strategy.mapRevision} image={image} elements={strategy.elements} tool={tool} drawingStyle={drawingStyle}
+            onDraw={element => { dispatch({ type: 'draw', element, at: new Date().toISOString() }); setSelectedId(element.id); setTool('select'); }} onPlace={place}
             selectedId={selectedId} onSelect={setSelectedId}
             onMove={(id, position) => dispatch({ type: 'move', id, position, at: new Date().toISOString() })} />
             : <div className="loading" role="status">{error ? '背景画像を読み込めません。下のボタンで再試行できます。' : '盤面を読み込み中…'}</div>}
@@ -118,6 +154,11 @@ export default function App() {
             <button disabled={busy} onClick={() => void changeImage()}>デモ画像に戻す</button>
             {busy && <p role="status">画像を読み込み中…</p>}
           </details>
+          <details className="drawings"><summary>描画一覧（{strategy.elements.length - elements.length}）</summary>
+            <ul>{strategy.elements.filter(e => e.type !== 'hero').map(e => <li key={e.id} data-testid="drawing" data-element={JSON.stringify(e)}>
+              <button aria-pressed={selectedId === e.id} onClick={() => { setSelectedId(e.id); setTool('select'); }}>{e.type === 'line' ? '直線' : e.type === 'arrow' ? '矢印' : 'フリーハンド'}を選択</button>
+            </li>)}</ul>
+          </details>
           <details className="placements"><summary>配置一覧（{elements.length}）</summary>
             {!elements.length && <p>まだ配置されていません。</p>}
             <ul>{elements.map(element => <li key={element.id} data-testid="placement" data-x={element.position.x} data-y={element.position.y}>
@@ -125,7 +166,7 @@ export default function App() {
                 {heroes.find(h => h.id === element.heroId)?.name} · {element.team === 'ally' ? '味方' : '敵'}
               </button><span>X {Math.round(element.position.x * 100)}% / Y {Math.round(element.position.y * 100)}%</span>
             </li>)}</ul>
-            {selected && <div className="coordinate-fields"><p>選択中のヒーローを数値で移動（%）</p>
+            {selected?.type === 'hero' && <div className="coordinate-fields"><p>選択中のヒーローを数値で移動（%）</p>
               {(['x', 'y'] as const).map(axis => <label key={axis}>{axis.toUpperCase()}<input type="number" min="0" max="100" step="1"
                 value={Math.round(selected.position[axis] * 100)} onChange={e => {
                   if (!Number.isFinite(e.target.valueAsNumber)) return;
