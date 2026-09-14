@@ -1,7 +1,9 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import Board from './components/Board';
 import { createStrategy, heroes, initialMap } from './data/catalog';
-import { createHistory, historyReducer } from './domain/history';
+import type { HistoryAction } from './domain/history';
+import { createWorkspace, workspaceReducer } from './domain/workspace';
+import { copyStrategy, exportStrategy, importStrategy, loadStrategies, MAX_JSON_SIZE, saveStrategies } from './domain/persistence';
 import { loadImage, validateImageFile } from './domain/image';
 import type { EditorTool, HeroElement, Point, Role, Team } from './domain/types';
 
@@ -9,7 +11,50 @@ const roleLabels: Record<Role, string> = { tank: 'タンク', damage: 'ダメー
 const demoImage = initialMap.areas[0].image;
 
 export default function App() {
-  const [history, dispatch] = useReducer(historyReducer, undefined, () => createHistory(createStrategy()));
+  const [initial, setInitial] = useState(() => {
+    try { return { strategies: loadStrategies(window.localStorage), error: '' }; }
+    catch { return { strategies: [], error: '保存データを読み込めませんでした。既存の保存領域は上書きしていません。JSON Exportで編集内容を退避できます。' }; }
+  });
+  const [workspace, update] = useReducer(workspaceReducer, initial.strategies, createWorkspace);
+  const history = workspace.entries.find(e => e.present.id === workspace.activeId)!;
+  const dispatch = (action: HistoryAction) => update({ type: 'edit', action });
+  const [storageError, setStorageError] = useState(initial.error);
+  const [savedEntries, setSavedEntries] = useState<typeof workspace.entries | null>(null);
+  const [notice, setNotice] = useState('');
+  const localImages = useRef(new Map<string, { image: HTMLImageElement; name: string }>());
+  useEffect(() => {
+    if (initial.error) return;
+    try {
+      saveStrategies(window.localStorage, workspace.entries.map(e => e.present));
+      // Reflect the result of the synchronous external storage write.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSavedEntries(workspace.entries);
+      setStorageError('');
+    } catch { setStorageError('保存に失敗しました（容量不足またはストレージ利用不可）。編集内容はメモリに保持しています。JSON Exportで退避するか、保存を再試行してください。'); }
+  }, [workspace.entries, initial.error]);
+  function retrySave() {
+    if (initial.error && !window.confirm('読み込めなかった保存データを、現在の戦術一覧で上書きしますか？')) return;
+    try { saveStrategies(window.localStorage, workspace.entries.map(e => e.present)); setInitial(previous => ({ ...previous, error: '' })); setSavedEntries(workspace.entries); setStorageError(''); }
+    catch { setStorageError('保存に失敗しました。編集内容はメモリに保持しています。'); }
+  }
+  function download() {
+    try {
+      const json = exportStrategy(history.present);
+      const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+      const a = document.createElement('a'); a.href = url; a.download = 'strategy.json'; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice(history.present.mapRevision.startsWith('local-') ? 'JSONを書き出しました。ローカル背景画像はJSONに含まれず、共有されません。受信者は画像を別途選択してください。' : 'JSONを書き出しました。');
+    } catch (reason) { setNotice(reason instanceof Error ? reason.message : 'Exportに失敗しました。'); }
+  }
+  async function readJson(file: File) {
+    try {
+      if (file.size > MAX_JSON_SIZE) throw new Error('JSONは5MB以下にしてください。');
+      const imported = importStrategy(await file.text());
+      // Resolve against current entries in the reducer, even if reading completes after another import.
+      update({ type: 'import', strategy: imported });
+      setNotice(imported.mapRevision.startsWith('local-') ? 'Importしました。ローカル背景画像は共有されません。画像を別途選択してください。' : 'Importしました。同じIDがある場合は新しいIDで追加します。');
+    } catch (reason) { setNotice(reason instanceof Error ? reason.message : 'Importに失敗しました。'); }
+  }
   const strategy = history.present;
   const [drawingStyle, setDrawingStyle] = useState({ color: '#79ddd0', width: 3 });
   const [heroId, setHeroId] = useState(heroes[0].id);
@@ -26,12 +71,21 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    const initialRequest = requestId.current;
+    const initialRequest = ++requestId.current;
+    // Reset editor state when synchronizing a different external background.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedId(null); setBusy(false); setImage(null); setError('');
+    const cached = localImages.current.get(strategy.mapRevision);
+    setLocalName(cached?.name ?? null);
+    if (strategy.mapRevision.startsWith('local-')) {
+      setImage(cached?.image ?? null);
+      return () => { cancelled = true; };
+    }
     if (demoImage.kind === 'original-demo') loadImage(demoImage.url)
       .then(result => { if (!cancelled && requestId.current === initialRequest) setImage(result); })
       .catch((reason: Error) => { if (!cancelled && requestId.current === initialRequest) setError(reason.message); });
     return () => { cancelled = true; };
-  }, []);
+  }, [strategy.id, strategy.mapRevision]);
 
   function place(point: Point) {
     const id = crypto.randomUUID();
@@ -45,9 +99,9 @@ export default function App() {
       const target = event.target;
       if (target instanceof HTMLElement && (target.closest('input, textarea, select') || target.isContentEditable)) return;
       if (event.key === 'Delete' || event.key === 'Backspace') {
-        if (selectedId) { event.preventDefault(); dispatch({ type: 'delete', id: selectedId, at: new Date().toISOString() }); }
+        if (selectedId) { event.preventDefault(); update({ type: 'edit', action: { type: 'delete', id: selectedId, at: new Date().toISOString() } }); }
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
-        event.preventDefault(); dispatch({ type: event.shiftKey ? 'redo' : 'undo', at: new Date().toISOString() });
+        event.preventDefault(); update({ type: 'edit', action: { type: event.shiftKey ? 'redo' : 'undo', at: new Date().toISOString() } });
       }
     }
     window.addEventListener('keydown', keydown);
@@ -65,7 +119,8 @@ export default function App() {
       const message = validateImageFile(file);
       if (message) { setError(message); return; }
     }
-    if (strategy.elements.length && !window.confirm('背景を変更すると現在の配置・描画と編集履歴をクリアします。変更しますか？')) return;
+    const restoring = !!file && strategy.mapRevision.startsWith('local-') && !image;
+    if (!restoring && strategy.elements.length && !window.confirm('背景を変更すると現在の配置・描画と編集履歴をクリアします。変更しますか？')) return;
     const id = ++requestId.current;
     const url = file ? URL.createObjectURL(file) : demoImage.kind === 'original-demo' ? demoImage.url : '';
     setBusy(true);
@@ -76,8 +131,11 @@ export default function App() {
       setImage(result);
       setLocalName(file?.name ?? null);
       setSelectedId(null);
-      dispatch({ type: 'reset-map', revision: file ? `local-${crypto.randomUUID()}` : demoImage.revision, at: new Date().toISOString() });
+      const revision = restoring ? strategy.mapRevision : file ? `local-${crypto.randomUUID()}` : demoImage.revision;
+      if (file) localImages.current.set(revision, { image: result, name: file.name });
+      if (!restoring) dispatch({ type: 'reset-map', revision, at: new Date().toISOString() });
     } catch (reason) {
+      if (id !== requestId.current) return;
       setError(reason instanceof Error ? reason.message : '読み込みに失敗しました。');
     } finally {
       if (file) URL.revokeObjectURL(url);
@@ -88,13 +146,27 @@ export default function App() {
   return <div className="app">
     <header className="app-header">
       <div className="brand"><span className="brand-mark" aria-hidden="true">P</span><div><strong>OW2 PLANT</strong><span className="eyebrow">TACTICAL WORKSPACE</span></div></div>
-      <span className="phase-tag">PHASE 02 <span>戦術編集</span></span>
+      <span className="phase-tag">PHASE 03 <span>保存・JSON共有</span></span>
     </header>
     <main>
       <div className="title-row">
         <div><p className="eyebrow">HYBRID / {initialMap.areas[0].name}</p><h1>{initialMap.name}</h1></div>
-        <div className="status"><span className="status-dot" />編集中 · このPhaseでは保存されません</div>
+        <div className="status"><span className="status-dot" />{storageError ? '未保存 · 保存エラー' : savedEntries === workspace.entries ? 'ブラウザに保存済み' : '保存中…'}</div>
       </div>
+      <section className="strategy-library" aria-label="戦術の保存と共有">
+        <label className="field">戦術一覧<select value={strategy.id} onChange={e => update({ type: 'open', id: e.target.value })}>
+          {workspace.entries.map(e => <option key={e.present.id} value={e.present.id}>{e.present.name || '無題の戦術'}</option>)}
+        </select></label>
+        <div className="library-actions">
+          <button onClick={() => update({ type: 'add', strategy: createStrategy() })}>新規作成</button>
+          <button onClick={() => update({ type: 'add', strategy: copyStrategy(strategy, workspace.entries.map(e => e.present), true) })}>戦術を複製</button>
+          <button onClick={() => { if (window.confirm(`「${strategy.name}」を削除しますか？`)) update({ type: 'remove' }); }}>戦術を削除</button>
+          <button onClick={download}>JSON Export</button>
+          <label className="file-label">JSON Import<input type="file" accept=".json,application/json" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void readJson(file); }} /></label>
+        </div>
+        {storageError && <><p className="error" role="alert">{storageError}</p><button onClick={retrySave}>保存を再試行</button></>}
+        {notice && <p role="status">{notice}</p>}
+      </section>
       <div className="workspace">
         <aside className="sidebar">
           <label className="field">戦術名<input maxLength={80} value={strategy.name} onChange={e => dispatch({ type: 'rename', name: e.target.value, at: new Date().toISOString() })} /></label>
@@ -138,13 +210,13 @@ export default function App() {
             <button disabled={!history.past.length} onClick={() => dispatch({ type: 'undo', at: new Date().toISOString() })}>Undo</button>
             <button disabled={!history.future.length} onClick={() => dispatch({ type: 'redo', at: new Date().toISOString() })}>Redo</button>
           </div>
-          <div className="map-notice">{localName ? `端末内の画像：${localName}` : 'デモ用の自作模式図です。King’s Rowの実際の地形ではありません。'}</div>
+          <div className="map-notice">{strategy.mapRevision.startsWith('local-') ? `ローカル背景画像${localName ? `：${localName}` : '：未設定'}。画像は保存・JSON共有されません。${!image ? '配置は保持されています。背景画像の設定から同じ画像を再選択してください。' : ''}` : 'デモ用の自作模式図です。King’s Rowの実際の地形ではありません。'}</div>
           {error && <p role="alert" className="error">{error}</p>}
-          {image ? <Board key={strategy.mapRevision} image={image} elements={strategy.elements} tool={tool} drawingStyle={drawingStyle}
+          {image ? <Board key={`${strategy.id}:${strategy.mapRevision}`} image={image} elements={strategy.elements} tool={tool} drawingStyle={drawingStyle}
             onDraw={element => { dispatch({ type: 'draw', element, at: new Date().toISOString() }); setSelectedId(element.id); setTool('select'); }} onPlace={place}
             selectedId={selectedId} onSelect={setSelectedId}
             onMove={(id, position) => dispatch({ type: 'move', id, position, at: new Date().toISOString() })} />
-            : <div className="loading" role="status">{error ? '背景画像を読み込めません。下のボタンで再試行できます。' : '盤面を読み込み中…'}</div>}
+            : <div className="loading" role="status">{strategy.mapRevision.startsWith('local-') ? 'ローカル背景画像を再選択してください。配置・描画は保持されています。' : error ? '背景画像を読み込めません。下のボタンで再試行できます。' : '盤面を読み込み中…'}</div>}
           <div className="board-footer"><span>PC：ホイールで拡大 · スマホ：2本指で拡大・移動</span><span>味方 ● / 敵 ◌</span></div>
           <details className="image-settings"><summary>背景画像の設定</summary>
             <p>利用権限のあるKing’s Row第1拠点の俯瞰画像を選択してください。画像は端末内でのみ使用し、送信・保存しません。</p>
