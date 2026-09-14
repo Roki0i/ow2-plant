@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('loads map, places a hero, drags and retains normalized coordinates after resize', async ({ page, isMobile }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('./');
   const board = page.getByTestId('board');
   await expect(board.locator('canvas')).toBeVisible();
   await expect(page.getByText('デモ用の自作模式図です。', { exact: false })).toBeVisible();
@@ -52,7 +52,7 @@ test('loads map, places a hero, drags and retains normalized coordinates after r
 });
 
 test('rejects invalid local files without losing placements', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByTestId('board').locator('canvas')).toBeVisible();
   await page.getByTestId('board').click();
   await expect(page.getByTestId('element-count')).toHaveText('1 個配置');
@@ -70,7 +70,7 @@ test('rejects invalid local files without losing placements', async ({ page }) =
 test('loads a local image without uploading it and resets incompatible placements', async ({ page }) => {
   const outgoing: string[] = [];
   page.on('request', request => { if (request.method() === 'POST') outgoing.push(request.url()); });
-  await page.goto('/');
+  await page.goto('./');
   const board = page.getByTestId('board');
   await expect(board.locator('canvas')).toBeVisible();
   const png = await board.locator('canvas').screenshot();
@@ -93,7 +93,7 @@ test('loads a local image without uploading it and resets incompatible placement
 
 test('two-finger pinch changes the viewport without placing heroes', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch gesture test');
-  await page.goto('/');
+  await page.goto('./');
   const board = page.getByTestId('board');
   await expect(board.locator('canvas')).toBeVisible();
   await board.scrollIntoViewIfNeeded();

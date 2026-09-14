@@ -55,7 +55,7 @@ it.each(['{', 'NaN', '{"x":Infinity}', 'null', '[]'])('rejects invalid JSON/sche
 describe('strict schema validation', () => {
   it.each([
     { schemaVersion: undefined }, { schemaVersion: 2 }, { name: 1 }, { name: 'x'.repeat(81) },
-    { side: 'invalid' }, { mapId: 'unknown' }, { areaId: 'unknown' }, { mapRevision: 'https://evil.test' },
+    { side: 'invalid' }, { side: ['attack'] }, { mapId: 'unknown' }, { areaId: 'unknown' }, { mapRevision: 'https://evil.test' },
     { createdAt: 'yesterday' }, { updatedAt: '2026-02-31T00:00:00.000Z' }, { past: [] }, { elements: [{}] },
   ])('rejects invalid fields %j', patch => expect(() => validateStrategy({ ...fixture(), ...patch })).toThrow());
   it.each([NaN, Infinity, -Infinity, -0.01, 1.01, '0.5', null])('rejects coordinate %s before serialization', x => {
@@ -84,4 +84,25 @@ it('save never resets undo/redo; switching preserves in-memory histories and rel
   state = workspaceReducer(state, { type: 'edit', action: { type: 'redo', at: new Date().toISOString() } });
   expect(state.entries[0].present.elements).toHaveLength(3);
   expect(createWorkspace(loadStrategies({ getItem: () => saved })).entries[0].past).toEqual([]);
+});
+it('no-op edits retain workspace identity and avoid redundant persistence', () => {
+  const state = createWorkspace([fixture()]);
+  expect(workspaceReducer(state, { type: 'edit', action: { type: 'undo', at: new Date().toISOString() } })).toBe(state);
+});
+it('rejects prototype keys, oversized input, unknown heroes and unsafe colors', () => {
+  expect(() => importStrategy('{"__proto__":{"polluted":true}}')).toThrow();
+  expect(() => importStrategy(' '.repeat(5 * 1024 * 1024 + 1))).toThrow();
+  expect(() => loadStrategies({ getItem: () => ' '.repeat(20 * 1024 * 1024 + 1) })).toThrow();
+  const s = fixture();
+  s.elements[0] = { ...s.elements[0], heroId: 'unknown' } as typeof s.elements[0];
+  expect(() => validateStrategy(s)).toThrow();
+  const drawing = fixture();
+  drawing.elements[1] = { ...drawing.elements[1], color: 'url(javascript:alert(1))' } as typeof drawing.elements[1];
+  expect(() => validateStrategy(drawing)).toThrow();
+});
+
+it('rejects array values masquerading as a team string', () => {
+  const s = fixture();
+  s.elements[0] = { ...s.elements[0], team: ['ally'] } as unknown as typeof s.elements[0];
+  expect(() => validateStrategy(s)).toThrow();
 });

@@ -1,40 +1,70 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import Board from './components/Board';
 import { createStrategy, heroes, initialMap } from './data/catalog';
 import type { HistoryAction } from './domain/history';
 import { createWorkspace, workspaceReducer } from './domain/workspace';
-import { copyStrategy, exportStrategy, importStrategy, loadStrategies, MAX_JSON_SIZE, saveStrategies } from './domain/persistence';
+import { copyStrategy, exportStrategy, importStrategy, loadStrategies, MAX_JSON_SIZE, saveStrategies, STORAGE_KEY } from './domain/persistence';
 import { loadImage, validateImageFile } from './domain/image';
-import type { EditorTool, HeroElement, Point, Role, Team } from './domain/types';
+import type { BoardElement, EditorTool, HeroElement, Point, Role, Team } from './domain/types';
 
 const roleLabels: Record<Role, string> = { tank: 'タンク', damage: 'ダメージ', support: 'サポート' };
 const demoImage = initialMap.areas[0].image;
 
 export default function App() {
   const [initial, setInitial] = useState(() => {
-    try { return { strategies: loadStrategies(window.localStorage), error: '' }; }
-    catch { return { strategies: [], error: '保存データを読み込めませんでした。既存の保存領域は上書きしていません。JSON Exportで編集内容を退避できます。' }; }
+    try { return { strategies: loadStrategies(window.localStorage), raw: window.localStorage.getItem(STORAGE_KEY), error: '' }; }
+    catch { return { strategies: [], raw: null, error: '保存データを読み込めませんでした。既存の保存領域は上書きしていません。JSON Exportで編集内容を退避できます。' }; }
   });
+  const baseline = useRef<string | null>(initial.raw);
+  const baselineReady = useRef(true);
+  const [conflict, setConflict] = useState(false);
+  const conflictRef = useRef(false);
   const [workspace, update] = useReducer(workspaceReducer, initial.strategies, createWorkspace);
   const history = workspace.entries.find(e => e.present.id === workspace.activeId)!;
-  const dispatch = (action: HistoryAction) => update({ type: 'edit', action });
+  const dispatch = useCallback((action: HistoryAction) => update({ type: 'edit', action }), []);
   const [storageError, setStorageError] = useState(initial.error);
   const [savedEntries, setSavedEntries] = useState<typeof workspace.entries | null>(null);
   const [notice, setNotice] = useState('');
   const localImages = useRef(new Map<string, { image: HTMLImageElement; name: string }>());
   useEffect(() => {
-    if (initial.error) return;
+    function changed(event: StorageEvent) {
+      if (event.storageArea !== window.localStorage || (event.key !== STORAGE_KEY && event.key !== null)) return;
+      if (window.localStorage.getItem(STORAGE_KEY) !== baseline.current) {
+        conflictRef.current = true; setConflict(true);
+      }
+    }
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
+  }, []);
+  useEffect(() => {
+    if (initial.error || conflictRef.current) return;
     try {
+      const latest = window.localStorage.getItem(STORAGE_KEY);
+      if (baselineReady.current && latest !== baseline.current) {
+        conflictRef.current = true;
+        // Reflect an external storage change without overwriting in-memory edits.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setConflict(true); return;
+      }
       saveStrategies(window.localStorage, workspace.entries.map(e => e.present));
+      baseline.current = window.localStorage.getItem(STORAGE_KEY); baselineReady.current = true;
       // Reflect the result of the synchronous external storage write.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSavedEntries(workspace.entries);
       setStorageError('');
     } catch { setStorageError('保存に失敗しました（容量不足またはストレージ利用不可）。編集内容はメモリに保持しています。JSON Exportで退避するか、保存を再試行してください。'); }
   }, [workspace.entries, initial.error]);
+  useEffect(() => {
+    function warn(event: BeforeUnloadEvent) {
+      if (!conflictRef.current && !storageError) return;
+      event.preventDefault(); event.returnValue = '';
+    }
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [storageError]);
   function retrySave() {
+    if (conflictRef.current && !window.confirm('他タブの保存内容を現在の戦術一覧で上書きしますか？必要なら先にJSON Exportしてください。')) return;
     if (initial.error && !window.confirm('読み込めなかった保存データを、現在の戦術一覧で上書きしますか？')) return;
-    try { saveStrategies(window.localStorage, workspace.entries.map(e => e.present)); setInitial(previous => ({ ...previous, error: '' })); setSavedEntries(workspace.entries); setStorageError(''); }
+    try { saveStrategies(window.localStorage, workspace.entries.map(e => e.present)); baseline.current = window.localStorage.getItem(STORAGE_KEY); baselineReady.current = true; conflictRef.current = false; setConflict(false); setInitial(previous => ({ ...previous, error: '' })); setSavedEntries(workspace.entries); setStorageError(''); }
     catch { setStorageError('保存に失敗しました。編集内容はメモリに保持しています。'); }
   }
   function download() {
@@ -87,12 +117,16 @@ export default function App() {
     return () => { cancelled = true; };
   }, [strategy.id, strategy.mapRevision]);
 
-  function place(point: Point) {
+  const place = useCallback((point: Point) => {
     const id = crypto.randomUUID();
     dispatch({ type: 'place', element: { id, type: 'hero', heroId, team, position: point }, at: new Date().toISOString() });
     setSelectedId(id);
     setTool('select');
-  }
+  }, [dispatch, heroId, team]);
+  const move = useCallback((id: string, position: Point) => dispatch({ type: 'move', id, position, at: new Date().toISOString() }), [dispatch]);
+  const draw = useCallback((element: Exclude<BoardElement, HeroElement>) => {
+    dispatch({ type: 'draw', element, at: new Date().toISOString() }); setSelectedId(element.id); setTool('select');
+  }, [dispatch]);
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
@@ -146,12 +180,12 @@ export default function App() {
   return <div className="app">
     <header className="app-header">
       <div className="brand"><span className="brand-mark" aria-hidden="true">P</span><div><strong>OW2 PLANT</strong><span className="eyebrow">TACTICAL WORKSPACE</span></div></div>
-      <span className="phase-tag">PHASE 03 <span>保存・JSON共有</span></span>
+      <span className="phase-tag">PHASE 04 <span>品質・公開仕上げ</span></span>
     </header>
     <main>
       <div className="title-row">
         <div><p className="eyebrow">HYBRID / {initialMap.areas[0].name}</p><h1>{initialMap.name}</h1></div>
-        <div className="status"><span className="status-dot" />{storageError ? '未保存 · 保存エラー' : savedEntries === workspace.entries ? 'ブラウザに保存済み' : '保存中…'}</div>
+        <div className="status"><span className="status-dot" />{conflict ? '未保存 · 他タブと競合' : storageError ? '未保存 · 保存エラー' : savedEntries === workspace.entries ? 'ブラウザに保存済み' : '保存中…'}</div>
       </div>
       <section className="strategy-library" aria-label="戦術の保存と共有">
         <label className="field">戦術一覧<select value={strategy.id} onChange={e => update({ type: 'open', id: e.target.value })}>
@@ -164,6 +198,12 @@ export default function App() {
           <button onClick={download}>JSON Export</button>
           <label className="file-label">JSON Import<input type="file" accept=".json,application/json" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void readJson(file); }} /></label>
         </div>
+        {conflict && <div className="conflict" role="alert">
+          <p>他タブで保存データが変更されました。自動保存を停止し、このタブの編集内容を保持しています。再読込すると現在の編集と履歴は破棄されます。必要なら先にJSON Exportしてください。</p>
+          <button onClick={() => { if (window.confirm('このタブの編集を破棄して、保存済みデータを再読込しますか？')) { conflictRef.current = false; window.location.reload(); } }}>保存済みを再読込</button>
+          <button onClick={() => setNotice('現在の編集を保持しています。自動保存は停止中です。JSON Exportで退避するか、「現在の内容で保存」を選んでください。')}>現在の編集を保持</button>
+          <button onClick={retrySave}>現在の内容で保存</button>
+        </div>}
         {storageError && <><p className="error" role="alert">{storageError}</p><button onClick={retrySave}>保存を再試行</button></>}
         {notice && <p role="status">{notice}</p>}
       </section>
@@ -189,6 +229,10 @@ export default function App() {
           <p className="help">ヒーローを選び、盤面をタップして配置。配置後はそのままドラッグで移動できます。</p>
         </aside>
         <div className="editor">
+          <div className="mobile-picker">
+            <label>ヒーロー選択<select aria-label="ヒーロー選択" value={heroId} onChange={e => { setHeroId(e.target.value); setTool('place'); }}>{heroes.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
+            <label>チーム<select aria-label="チーム" value={team} onChange={e => setTeam(e.target.value as Team)}><option value="ally">● 味方</option><option value="enemy">◌ 敵</option></select></label>
+          </div>
           <div className="toolbar" aria-label="編集ツール">
             <div className="tool-group">
               <button aria-pressed={tool === 'select'} onClick={() => setTool('select')}>↖ 選択・移動</button>
@@ -213,9 +257,9 @@ export default function App() {
           <div className="map-notice">{strategy.mapRevision.startsWith('local-') ? `ローカル背景画像${localName ? `：${localName}` : '：未設定'}。画像は保存・JSON共有されません。${!image ? '配置は保持されています。背景画像の設定から同じ画像を再選択してください。' : ''}` : 'デモ用の自作模式図です。King’s Rowの実際の地形ではありません。'}</div>
           {error && <p role="alert" className="error">{error}</p>}
           {image ? <Board key={`${strategy.id}:${strategy.mapRevision}`} image={image} elements={strategy.elements} tool={tool} drawingStyle={drawingStyle}
-            onDraw={element => { dispatch({ type: 'draw', element, at: new Date().toISOString() }); setSelectedId(element.id); setTool('select'); }} onPlace={place}
+            onDraw={draw} onPlace={place}
             selectedId={selectedId} onSelect={setSelectedId}
-            onMove={(id, position) => dispatch({ type: 'move', id, position, at: new Date().toISOString() })} />
+            onMove={move} />
             : <div className="loading" role="status">{strategy.mapRevision.startsWith('local-') ? 'ローカル背景画像を再選択してください。配置・描画は保持されています。' : error ? '背景画像を読み込めません。下のボタンで再試行できます。' : '盤面を読み込み中…'}</div>}
           <div className="board-footer"><span>PC：ホイールで拡大 · スマホ：2本指で拡大・移動</span><span>味方 ● / 敵 ◌</span></div>
           <details className="image-settings"><summary>背景画像の設定</summary>
@@ -225,6 +269,23 @@ export default function App() {
             }} /></label>
             <button disabled={busy} onClick={() => void changeImage()}>デモ画像に戻す</button>
             {busy && <p role="status">画像を読み込み中…</p>}
+          </details>
+          <details className="keyboard-editor"><summary>キーボード・数値で配置と描画</summary>
+            <p>座標は盤面の左上が0%、右下が100%。配置一覧から選択・移動、描画一覧から選択・色変更・削除できます。Ctrl / ⌘ + ZでUndo、Shiftも押すとRedo。</p>
+            <form onSubmit={event => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              const start = { x: Number(data.get('x')) / 100, y: Number(data.get('y')) / 100 };
+              const end = { x: Number(data.get('endX')) / 100, y: Number(data.get('endY')) / 100 };
+              if (tool === 'line' || tool === 'arrow' || tool === 'stroke') {
+                const id = crypto.randomUUID();
+                dispatch({ type: 'draw', element: tool === 'stroke' ? { id, type: tool, points: [start, end], ...drawingStyle } : { id, type: tool, start, end, ...drawingStyle }, at: new Date().toISOString() });
+                setSelectedId(id);
+              } else place(start);
+            }}>
+              <div className="numeric-grid">{[['x', '開始 X', 50], ['y', '開始 Y', 50], ['endX', '終了 X', 75], ['endY', '終了 Y', 75]].map(([name, label, value]) => <label key={name}>{label} (%)<input name={String(name)} type="number" min="0" max="100" step="any" required defaultValue={value} /></label>)}</div>
+              <button type="submit">{tool === 'line' || tool === 'arrow' || tool === 'stroke' ? '数値で描画を追加' : '数値でヒーローを配置'}</button>
+            </form>
           </details>
           <details className="drawings"><summary>描画一覧（{strategy.elements.length - elements.length}）</summary>
             <ul>{strategy.elements.filter(e => e.type !== 'hero').map(e => <li key={e.id} data-testid="drawing" data-element={JSON.stringify(e)}>

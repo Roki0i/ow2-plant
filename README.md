@@ -1,6 +1,6 @@
 # OW2 Plant
 
-Overwatch 2向けの非公式戦術ボード。Phase 3（保存・JSON共有）まで実装したポートフォリオ用プロトタイプです。
+Overwatch 2向けの非公式戦術ボード。Phase 4（品質・公開仕上げ）まで実装したポートフォリオ用プロトタイプです。
 
 ## 起動
 
@@ -34,11 +34,11 @@ npm run dev
 npm test
 npm run lint
 npm run build
-npx playwright install chromium
+npx playwright install chromium webkit
 npm run test:e2e
 ```
 
-単体テストは座標変換、配置・移動Reducer、画像ファイル検証を対象とします。PlaywrightはChromiumのPCとPixel 7エミュレーションで操作を確認します。スマホ実機確認とは区別してください。
+単体テストは座標変換・配置/描画・履歴・画像・保存/JSON境界を対象とします。Playwrightはproduction buildをサブパス配下で起動し、Chromium PC/Pixel 7、WebKit PC、iPhoneエミュレーション（品質テスト）を確認します。実機検証とは区別してください。
 
 ## 構成
 
@@ -52,6 +52,10 @@ npm run test:e2e
 
 [素材調査・利用方針](docs/asset-policy.md) / [Phase 0–1設計・次Phaseの課題](docs/phase-0-1.md)
 
+[Phase 4の品質改善・CI・公開手順・検証結果と制約](docs/phase-4.md)
+
 [Phase 3の保存形式・JSON schema・検証結果・制約](docs/phase-3.md)
 
 URL共有・クラウド保存・ログイン・共同編集は未実装です。公式との提携・承認はありません。
+
+GitHub Pages公開はSettings → Pages → GitHub Actionsを選び、Quality成功後にDeploy Pagesを手動実行してください。一般の静的ホストには`npm run build`で生成した`dist/`を配信できます。

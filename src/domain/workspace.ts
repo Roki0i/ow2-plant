@@ -18,6 +18,9 @@ export function workspaceReducer(state: Workspace, action: WorkspaceAction): Wor
       const entries = state.entries.filter(e => e.present.id !== state.activeId);
       return entries.length ? { entries, activeId: entries[0].present.id } : createWorkspace([]);
     }
-    case 'edit': return { ...state, entries: state.entries.map(e => e.present.id === state.activeId ? historyReducer(e, action.action) : e) };
+    case 'edit': {
+      const entries = state.entries.map(e => e.present.id === state.activeId ? historyReducer(e, action.action) : e);
+      return entries.every((e, i) => e === state.entries[i]) ? state : { ...state, entries };
+    }
   }
 }

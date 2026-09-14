@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 async function setup(page: Page) {
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByTestId('board').locator('canvas')).toBeVisible();
 }
 async function gesture(page: Page, mobile: boolean, from: { x: number; y: number }, to: { x: number; y: number }) {
@@ -39,6 +39,8 @@ for (const mode of ['直線', '矢印', 'フリーハンド']) {
     await page.getByRole('button', { name: '＋ 配置', exact: true }).click();
     const c2 = await center(page);
     if (isMobile) await page.touchscreen.tap(c2.x, c2.y + 60); else await page.mouse.click(c2.x, c2.y + 60);
+    // Konva redraws its hit graph on the next animation frame after changing tools.
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     if (isMobile) await page.touchscreen.tap(c2.x, c2.y); else await page.mouse.click(c2.x, c2.y);
     await page.getByLabel('描画色', { exact: true }).selectOption('#ffffff');
     await page.getByLabel('線幅', { exact: true }).selectOption('6');

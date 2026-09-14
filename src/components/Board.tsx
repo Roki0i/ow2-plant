@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Arrow, Line, Circle, Group, Image as CanvasImage, Layer, Stage, Text } from 'react-konva';
 import type Konva from 'konva';
 import { clampPoint, fitViewport, isInside, toNormalized, toScreen, zoomAt } from '../domain/coordinates';
@@ -18,7 +18,7 @@ interface Props {
   onSelect: (id: string | null) => void;
 }
 
-export default function Board({ image, elements, tool, onPlace, onMove, selectedId, onSelect, drawingStyle, onDraw }: Props) {
+function Board({ image, elements, tool, onPlace, onMove, selectedId, onSelect, drawingStyle, onDraw }: Props) {
   const [draft, setDraft] = useState<Exclude<BoardElement, HeroElement> | null>(null);
   const draftRef = useRef<typeof draft>(null);
   const [limitReached, setLimitReached] = useState(false);
@@ -130,7 +130,7 @@ export default function Board({ image, elements, tool, onPlace, onMove, selected
   }
 
   return <section className="board-section" aria-label="戦術ボード">
-    <div className="board" ref={host} data-testid="board" data-zoom={camera.zoom.toFixed(2)}
+    <div className="board" ref={host} role="img" aria-label="戦術の視覚表示。下のキーボード・数値操作と配置・描画一覧でも編集できます。" data-testid="board" data-zoom={camera.zoom.toFixed(2)}
       style={{ cursor: tool === 'pan' ? 'grab' : tool !== 'select' ? 'crosshair' : 'default' }}>
       <Stage ref={stageRef} width={size.width} height={size.height}
         onWheel={e => { e.evt.preventDefault(); if (draftRef.current) return; zoom(e.evt.deltaY > 0 ? 0.9 : 1.1, e.target.getStage()!.getPointerPosition()!); }}
@@ -212,9 +212,9 @@ export default function Board({ image, elements, tool, onPlace, onMove, selected
                 onMove(element.id, clampPoint(toNormalized(e.target.position(), imageSize, view)));
               }}>
               <Circle radius={23} fill="#101820" stroke={color} strokeWidth={selectedId === element.id ? 4 : 2}
-                dash={element.team === 'enemy' ? [5, 3] : undefined} shadowColor="#000" shadowBlur={8} shadowOpacity={0.3} />
+                dash={element.team === 'enemy' ? [5, 3] : undefined} shadowColor="#000" shadowBlur={8} shadowOpacity={0.3} shadowEnabled={selectedId === element.id} />
               <Text text={hero.shortName} x={-23} y={-7} width={46} align="center" fontSize={14} fontStyle="bold" fill={color} listening={false} />
-              <Text text={hero.name} x={-60} y={30} width={120} align="center" fontSize={12} fill="#f4f6f8" listening={false} />
+              <Text text={`${element.team === 'ally' ? '●' : '◌'} ${hero.name}`} x={-60} y={30} width={120} align="center" fontSize={12} fill="#f4f6f8" listening={false} />
             </Group>;
           })}
         </Layer>
@@ -225,7 +225,10 @@ export default function Board({ image, elements, tool, onPlace, onMove, selected
       <span>表示倍率 {Math.round(camera.zoom * 100)}%</span>
       <button aria-label="縮小" onClick={() => zoom(1 / 1.25)} disabled={camera.zoom <= 1.001}>−</button>
       <button aria-label="拡大" onClick={() => zoom(1.25)} disabled={camera.zoom >= 4.999}>＋</button>
+      {(['左', '右', '上', '下'] as const).map((direction, i) => <button key={direction} aria-label={`盤面を${direction}へ移動`} onClick={() => setCamera(previous => ({ ...previous, pan: { x: previous.pan.x + [-40, 40, 0, 0][i], y: previous.pan.y + [0, 0, -40, 40][i] } }))}>{direction}</button>)}
       <button onClick={() => setCamera({ zoom: 1, pan: { x: 0, y: 0 } })}>全体表示</button>
     </div>
   </section>;
 }
+
+export default memo(Board);

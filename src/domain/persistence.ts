@@ -2,6 +2,7 @@ import { heroes } from '../data/catalog';
 import type { Strategy } from './types';
 
 export const STORAGE_KEY = 'ow2-plant.strategies.v1';
+export const MAX_STORAGE_SIZE = 20 * 1024 * 1024;
 export const MAX_JSON_SIZE = 5 * 1024 * 1024;
 function fail(): never { throw new Error('戦術データの形式が不正です（schemaVersion・各項目・座標を確認してください）。'); }
 function object(value: unknown): Record<string, unknown> {
@@ -21,7 +22,7 @@ export function validateStrategy(value: unknown): Strategy {
   keys(s, ['id', 'schemaVersion', 'name', 'mapId', 'areaId', 'mapRevision', 'side', 'elements', 'createdAt', 'updatedAt']);
   str(s.id); str(s.mapRevision);
   if (s.schemaVersion !== 1 || s.mapId !== 'kings-row' || s.areaId !== 'point-a' ||
-    !['attack', 'defense', 'common'].includes(String(s.side)) || typeof s.name !== 'string' || s.name.length > 80) fail();
+    (typeof s.side !== 'string' || !['attack', 'defense', 'common'].includes(s.side)) || typeof s.name !== 'string' || s.name.length > 80) fail();
   if (s.mapRevision !== 'abstract-demo-v1' && !/^local-[a-zA-Z0-9-]+$/.test(s.mapRevision)) fail();
   for (const date of [s.createdAt, s.updatedAt]) {
     str(date); if (!Number.isFinite(Date.parse(date)) || new Date(date).toISOString() !== date) fail();
@@ -33,7 +34,7 @@ export function validateStrategy(value: unknown): Strategy {
     if (ids.has(e.id)) fail(); ids.add(e.id);
     if (e.type === 'hero') {
       keys(e, ['id', 'type', 'heroId', 'team', 'position']);
-      if (!heroes.some(h => h.id === e.heroId) || !['ally', 'enemy'].includes(String(e.team))) fail();
+      if (!heroes.some(h => h.id === e.heroId) || (typeof e.team !== 'string' || !['ally', 'enemy'].includes(e.team))) fail();
       point(e.position);
     } else {
       if (e.type === 'stroke') {
@@ -77,6 +78,7 @@ export function copyStrategy(strategy: Strategy, existing: Strategy[], duplicate
 export function loadStrategies(storage: Pick<Storage, 'getItem'>): Strategy[] {
   const json = storage.getItem(STORAGE_KEY);
   if (json === null) return [];
+  if (json.length > MAX_STORAGE_SIZE) fail();
   const values: unknown = JSON.parse(json);
   if (!Array.isArray(values)) fail();
   const result = values.map(validateStrategy);
@@ -85,5 +87,7 @@ export function loadStrategies(storage: Pick<Storage, 'getItem'>): Strategy[] {
 }
 export function saveStrategies(storage: Pick<Storage, 'setItem'>, strategies: Strategy[]) {
   strategies.forEach(validateStrategy);
-  storage.setItem(STORAGE_KEY, JSON.stringify(canonical(strategies)));
+  const json = JSON.stringify(canonical(strategies));
+  if (json.length > MAX_STORAGE_SIZE) throw new Error('保存容量の上限です。');
+  storage.setItem(STORAGE_KEY, json);
 }

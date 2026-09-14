@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 const key = 'ow2-plant.strategies.v1';
 
 test('save, reload, rename, duplicate, switch, delete and undo/redo', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByTestId('board').locator('canvas')).toBeVisible();
   await page.getByTestId('board').click();
   await page.getByLabel('戦術名', { exact: true }).fill('保存テスト');
@@ -35,7 +35,7 @@ test('save, reload, rename, duplicate, switch, delete and undo/redo', async ({ p
 });
 
 test('download round trip, collision and rejected imports preserve existing strategy', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByTestId('board').locator('canvas')).toBeVisible();
   await page.getByTestId('board').click();
   const downloaded = page.waitForEvent('download');
@@ -59,7 +59,7 @@ test('download round trip, collision and rejected imports preserve existing stra
 });
 
 test('storage quota failure keeps edits and undo; retry persists', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByTestId('board').locator('canvas')).toBeVisible();
   await page.evaluate(() => {
     const original = Storage.prototype.setItem;
@@ -81,14 +81,14 @@ test('storage quota failure keeps edits and undo; retry persists', async ({ page
 
 test('corrupt storage is not overwritten automatically', async ({ page }) => {
   await page.addInitScript(k => localStorage.setItem(k, '{broken'), key);
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByRole('alert')).toContainText('読み込めません');
   await page.getByLabel('戦術名', { exact: true }).fill('退避用');
   expect(await page.evaluate(k => localStorage.getItem(k), key)).toBe('{broken');
 });
 
 test('local image export/import and reload allow reattachment without losing elements', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
   const board = page.getByTestId('board');
   await expect(board.locator('canvas')).toBeVisible();
   const png = await board.locator('canvas').screenshot();
