@@ -1,6 +1,6 @@
 # OW2 Plant
 
-Overwatch 2向けの非公式戦術ボード。Phase 4（品質・公開仕上げ）まで実装したポートフォリオ用プロトタイプです。
+Overwatch向けのファン制作・非公式戦術ボードです。
 
 ## 起動
 
@@ -25,7 +25,7 @@ npm run dev
 - JSON Exportでダウンロード、JSON Importで検証済みの戦術を追加。
 - 背景画像の設定から、利用権限のあるPNG/JPEG/WebPを端末内で読み込み可能。
 
-**同梱の自作模式図はKing’s Rowの実地形ではありません。** 初期対象はKing’s Row / 第1拠点ですが、公式マップ画像やヒーロー肖像は配布しません。ヒーローは9種の文字バッジです。
+**同梱の自作模式図はKing’s Rowの実地形ではありません。** 初期対象はKing’s Row / 第1拠点ですが、公式マップ画像やヒーロー肖像は配布しません。ヒーローは53種の文字バッジです（2026-09-15公式一覧確認）。Tank / Damage / Support別に検索・選択できます。
 画像は送信・保存・JSON共有しません。ローカル画像は再読み込み後に同じ画像を再選択してください。配置・描画は保持されます。保存エラー時は編集内容をメモリに保持するため、タブを閉じる前に再試行またはJSON Exportしてください。
 
 ## 検証
@@ -44,10 +44,11 @@ npm run test:e2e
 
 - React + TypeScript + Vite + react-konva / Konva
 - `src/domain/`：型、座標、戦術更新、画像読み込み、単体テスト
-- `src/data/catalog.ts`：対象マップとヒーロー定義
+- `src/data/catalog.ts`：対象マップ
+- `src/data/heroes.ts`：全ヒーロー定義・ロール・検索
 - `src/components/Board.tsx`：Canvas表示、配置・ドラッグ・視点操作
 - `src/App.tsx`：エディター画面と一時状態
-- `public/maps/`：自作デモ素材
+- `public/maps/`：自作模式図
 - `e2e/`：ブラウザテスト
 
 [素材調査・利用方針](docs/asset-policy.md) / [Phase 0–1設計・次Phaseの課題](docs/phase-0-1.md)
@@ -59,3 +60,5 @@ npm run test:e2e
 URL共有・クラウド保存・ログイン・共同編集は未実装です。公式との提携・承認はありません。
 
 GitHub Pages公開はSettings → Pages → GitHub Actionsを選び、Quality成功後にDeploy Pagesを手動実行してください。一般の静的ホストには`npm run build`で生成した`dist/`を配信できます。
+
+[Production Content Pass：ロスター根拠・互換性・検証](docs/production-content-pass.md)

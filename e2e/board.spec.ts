@@ -6,7 +6,7 @@ test('loads map, places a hero, drags and retains normalized coordinates after r
   await page.goto('./');
   const board = page.getByTestId('board');
   await expect(board.locator('canvas')).toBeVisible();
-  await expect(page.getByText('デモ用の自作模式図です。', { exact: false })).toBeVisible();
+  await expect(page.getByText('戦術検討用の自作模式図です。', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'AN Ana', exact: true }).click();
   await board.scrollIntoViewIfNeeded();
   const bounds = (await board.boundingBox())!;

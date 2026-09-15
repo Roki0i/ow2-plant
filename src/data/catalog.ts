@@ -1,4 +1,4 @@
-import type { HeroDefinition, MapDefinition, Strategy } from '../domain/types';
+import type { MapDefinition, Strategy } from '../domain/types';
 
 export const initialMap: MapDefinition = {
   id: 'kings-row', name: 'King’s Row', mode: 'hybrid',
@@ -6,18 +6,7 @@ export const initialMap: MapDefinition = {
     image: { kind: 'original-demo', url: `${import.meta.env.BASE_URL}maps/tactical-demo.svg`, revision: 'abstract-demo-v1' } }],
 };
 
-// Deliberately small Phase 1 catalog; names identify heroes, portraits are not bundled.
-export const heroes: HeroDefinition[] = [
-  { id: 'reinhardt', name: 'Reinhardt', shortName: 'RE', role: 'tank' },
-  { id: 'winston', name: 'Winston', shortName: 'WI', role: 'tank' },
-  { id: 'dva', name: 'D.Va', shortName: 'DV', role: 'tank' },
-  { id: 'tracer', name: 'Tracer', shortName: 'TR', role: 'damage' },
-  { id: 'genji', name: 'Genji', shortName: 'GE', role: 'damage' },
-  { id: 'soldier-76', name: 'Soldier: 76', shortName: '76', role: 'damage' },
-  { id: 'ana', name: 'Ana', shortName: 'AN', role: 'support' },
-  { id: 'lucio', name: 'Lúcio', shortName: 'LU', role: 'support' },
-  { id: 'mercy', name: 'Mercy', shortName: 'ME', role: 'support' },
-];
+export { heroes } from './heroes';
 
 export function createStrategy(): Strategy {
   const now = new Date().toISOString();

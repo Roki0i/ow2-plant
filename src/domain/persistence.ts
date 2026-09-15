@@ -34,7 +34,9 @@ export function validateStrategy(value: unknown): Strategy {
     if (ids.has(e.id)) fail(); ids.add(e.id);
     if (e.type === 'hero') {
       keys(e, ['id', 'type', 'heroId', 'team', 'position']);
-      if (!heroes.some(h => h.id === e.heroId) || (typeof e.team !== 'string' || !['ally', 'enemy'].includes(e.team))) fail();
+      str(e.heroId);
+      if (!heroes.some(h => h.id === e.heroId)) throw new Error(`未対応のHero ID「${e.heroId}」が含まれています。戦術は読み込まず、既存データを保持しました。対応版で開いてください。`);
+      if ((typeof e.team !== 'string' || !['ally', 'enemy'].includes(e.team))) fail();
       point(e.position);
     } else {
       if (e.type === 'stroke') {

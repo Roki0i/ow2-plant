@@ -7,7 +7,7 @@ import { copyStrategy, exportStrategy, importStrategy, loadStrategies, MAX_JSON_
 import { loadImage, validateImageFile } from './domain/image';
 import type { BoardElement, EditorTool, HeroElement, Point, Role, Team } from './domain/types';
 
-const roleLabels: Record<Role, string> = { tank: 'タンク', damage: 'ダメージ', support: 'サポート' };
+import { filterHeroes, roleLabels, roles } from './data/heroes';
 const demoImage = initialMap.areas[0].image;
 
 export default function App() {
@@ -88,6 +88,14 @@ export default function App() {
   const strategy = history.present;
   const [drawingStyle, setDrawingStyle] = useState({ color: '#79ddd0', width: 3 });
   const [heroId, setHeroId] = useState(heroes[0].id);
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all');
+  const visibleHeroes = filterHeroes(query, roleFilter);
+  const pickerFilters = <div className="picker-filters">
+    <label>ヒーロー検索<input type="search" value={query} placeholder="名前・イニシャルで検索" onChange={e => setQuery(e.target.value)} /></label>
+    <label>ロール<select aria-label="ロール" value={roleFilter} onChange={e => setRoleFilter(e.target.value as Role | 'all')}><option value="all">すべてのロール</option>{roles.map(role => <option key={role} value={role}>{roleLabels[role]}</option>)}</select></label>
+    <span role="status">{visibleHeroes.length} / {heroes.length} ヒーロー</span>
+  </div>;
   const [team, setTeam] = useState<Team>('ally');
   const [tool, setTool] = useState<EditorTool>('place');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -180,7 +188,6 @@ export default function App() {
   return <div className="app">
     <header className="app-header">
       <div className="brand"><span className="brand-mark" aria-hidden="true">P</span><div><strong>OW2 PLANT</strong><span className="eyebrow">TACTICAL WORKSPACE</span></div></div>
-      <span className="phase-tag">PHASE 04 <span>品質・公開仕上げ</span></span>
     </header>
     <main>
       <div className="title-row">
@@ -213,16 +220,18 @@ export default function App() {
           <label className="field">戦術のサイド<select value={strategy.side} onChange={e => dispatch({ type: 'side', side: e.target.value as typeof strategy.side, at: new Date().toISOString() })}>
             <option value="attack">攻撃</option><option value="defense">防衛</option><option value="common">共通</option>
           </select></label>
-          <div className="section-heading"><h2>ヒーロー</h2><span>9 HEROES</span></div>
+          <div className="section-heading"><h2>ヒーロー</h2><span>{heroes.length} HEROES</span></div>
           <div className="segmented" aria-label="配置するチーム">
             <button aria-pressed={team === 'ally'} onClick={() => setTeam('ally')}>● 味方</button>
             <button aria-pressed={team === 'enemy'} onClick={() => setTeam('enemy')}>◌ 敵</button>
           </div>
-          <div className="hero-catalog">
-            {(Object.keys(roleLabels) as Role[]).map(role => <div className="role-group" key={role}>
-              <h3>{roleLabels[role]}</h3><div className="hero-grid">{heroes.filter(h => h.role === role).map(hero =>
-                <button key={hero.id} className="hero-button" aria-pressed={heroId === hero.id} onClick={() => { setHeroId(hero.id); setTool('place'); }}>
-                  <span className="hero-badge">{hero.shortName}</span><span>{hero.name}</span>
+          {pickerFilters}
+          <p className="picker-selection">選択中：{heroes.find(h => h.id === heroId)?.name} · {team === 'ally' ? '● 味方' : '◌ 敵'}</p>
+          <div className="hero-catalog" aria-label="ヒーロー一覧">
+            {roles.filter(role => visibleHeroes.some(h => h.role === role)).map(role => <div className="role-group" key={role}>
+              <h3>{roleLabels[role]}</h3><div className="hero-grid">{visibleHeroes.filter(h => h.role === role).map(hero =>
+                <button key={hero.id} className="hero-button" aria-label={`${hero.shortLabel} ${hero.name}`} aria-description={roleLabels[hero.role]} aria-pressed={heroId === hero.id} onClick={() => { setHeroId(hero.id); setTool('place'); }}>
+                  <span className="hero-badge">{hero.shortLabel}</span><span>{hero.name}</span>
                 </button>)}</div>
             </div>)}
           </div>
@@ -230,7 +239,8 @@ export default function App() {
         </aside>
         <div className="editor">
           <div className="mobile-picker">
-            <label>ヒーロー選択<select aria-label="ヒーロー選択" value={heroId} onChange={e => { setHeroId(e.target.value); setTool('place'); }}>{heroes.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
+            {pickerFilters}
+            <label>ヒーロー選択<select aria-label="ヒーロー選択" value={heroId} onChange={e => { setHeroId(e.target.value); setTool('place'); }}>{!visibleHeroes.some(h => h.id === heroId) && <option value={heroId}>{heroes.find(h => h.id === heroId)?.name}（選択中）</option>}{roles.map(role => <optgroup key={role} label={roleLabels[role]}>{visibleHeroes.filter(h => h.role === role).map(h => <option key={h.id} value={h.id}>{h.name}</option>)}</optgroup>)}</select></label>
             <label>チーム<select aria-label="チーム" value={team} onChange={e => setTeam(e.target.value as Team)}><option value="ally">● 味方</option><option value="enemy">◌ 敵</option></select></label>
           </div>
           <div className="toolbar" aria-label="編集ツール">
@@ -254,7 +264,7 @@ export default function App() {
             <button disabled={!history.past.length} onClick={() => dispatch({ type: 'undo', at: new Date().toISOString() })}>Undo</button>
             <button disabled={!history.future.length} onClick={() => dispatch({ type: 'redo', at: new Date().toISOString() })}>Redo</button>
           </div>
-          <div className="map-notice">{strategy.mapRevision.startsWith('local-') ? `ローカル背景画像${localName ? `：${localName}` : '：未設定'}。画像は保存・JSON共有されません。${!image ? '配置は保持されています。背景画像の設定から同じ画像を再選択してください。' : ''}` : 'デモ用の自作模式図です。King’s Rowの実際の地形ではありません。'}</div>
+          <div className="map-notice">{strategy.mapRevision.startsWith('local-') ? `ローカル背景画像${localName ? `：${localName}` : '：未設定'}。画像は保存・JSON共有されません。${!image ? '配置は保持されています。背景画像の設定から同じ画像を再選択してください。' : ''}` : '戦術検討用の自作模式図です。King’s Rowの実際の地形ではありません。'}</div>
           {error && <p role="alert" className="error">{error}</p>}
           {image ? <Board key={`${strategy.id}:${strategy.mapRevision}`} image={image} elements={strategy.elements} tool={tool} drawingStyle={drawingStyle}
             onDraw={draw} onPlace={place}
@@ -267,7 +277,7 @@ export default function App() {
             <label className="file-label">画像を選択（PNG / JPEG / WebP・10MBまで）<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={e => {
               const file = e.target.files?.[0]; e.target.value = ''; if (file) void changeImage(file);
             }} /></label>
-            <button disabled={busy} onClick={() => void changeImage()}>デモ画像に戻す</button>
+            <button disabled={busy} onClick={() => void changeImage()}>自作模式図に戻す</button>
             {busy && <p role="status">画像を読み込み中…</p>}
           </details>
           <details className="keyboard-editor"><summary>キーボード・数値で配置と描画</summary>
@@ -310,6 +320,6 @@ export default function App() {
         </div>
       </div>
     </main>
-    <footer className="app-footer">非公式のファン制作ポートフォリオ。Blizzard Entertainmentとの提携・承認関係はありません。Overwatchおよび関連名称は各権利者に帰属します。</footer>
+    <footer className="app-footer">ファン制作の非公式戦術ボード。Blizzard Entertainmentとの提携・承認関係はありません。Overwatchおよび関連名称は各権利者に帰属します。</footer>
   </div>;
 }

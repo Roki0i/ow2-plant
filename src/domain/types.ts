@@ -9,7 +9,7 @@ export type Role = 'tank' | 'damage' | 'support';
 export interface HeroDefinition {
   id: string;
   name: string;
-  shortName: string;
+  shortLabel: string;
   role: Role;
 }
 export interface HeroElement {

@@ -213,7 +213,7 @@ function Board({ image, elements, tool, onPlace, onMove, selectedId, onSelect, d
               }}>
               <Circle radius={23} fill="#101820" stroke={color} strokeWidth={selectedId === element.id ? 4 : 2}
                 dash={element.team === 'enemy' ? [5, 3] : undefined} shadowColor="#000" shadowBlur={8} shadowOpacity={0.3} shadowEnabled={selectedId === element.id} />
-              <Text text={hero.shortName} x={-23} y={-7} width={46} align="center" fontSize={14} fontStyle="bold" fill={color} listening={false} />
+              <Text text={hero.shortLabel} x={-23} y={-7} width={46} align="center" fontSize={14} fontStyle="bold" fill={color} listening={false} />
               <Text text={`${element.team === 'ally' ? '●' : '◌'} ${hero.name}`} x={-60} y={30} width={120} align="center" fontSize={12} fill="#f4f6f8" listening={false} />
             </Group>;
           })}
